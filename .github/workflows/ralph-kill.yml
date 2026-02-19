@@ -1,0 +1,45 @@
+name: Ralph Kill Switch
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Enable or disable Ralph loops"
+        required: true
+        type: choice
+        options:
+          - disable
+          - enable
+
+jobs:
+  toggle:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 2
+    steps:
+      - name: Toggle kill switch
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO="${{ github.repository }}"
+          ACTION="${{ inputs.action }}"
+
+          if [[ "$ACTION" == "disable" ]]; then
+            gh variable set RALPH_ENABLED --body "false" --repo "$REPO"
+            echo "Ralph loops DISABLED for $REPO"
+          else
+            gh variable set RALPH_ENABLED --body "true" --repo "$REPO"
+            echo "Ralph loops ENABLED for $REPO"
+          fi
+
+      - name: Cancel running workflows
+        if: inputs.action == 'disable'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPO="${{ github.repository }}"
+          # Cancel all running Ralph Loop workflows
+          gh run list --workflow=ralph-loop.yml --status=in_progress --repo "$REPO" --json databaseId -q '.[].databaseId' | \
+            while read -r RUN_ID; do
+              echo "Cancelling run $RUN_ID"
+              gh run cancel "$RUN_ID" --repo "$REPO" || true
+            done

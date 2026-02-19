@@ -1,0 +1,163 @@
+name: Ralph Loop
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_iterations:
+        description: "Max loop iterations"
+        required: false
+        default: "40"
+        type: string
+      concurrency_count:
+        description: "Parallel loops (1-12)"
+        required: false
+        default: "3"
+        type: string
+      timeout_minutes:
+        description: "Workflow timeout (minutes)"
+        required: false
+        default: "180"
+        type: string
+      model:
+        description: "Claude model"
+        required: false
+        default: "claude-sonnet-4-6"
+        type: choice
+        options:
+          - claude-sonnet-4-6
+          - claude-opus-4-6
+          - claude-haiku-4-5-20251001
+  push:
+    branches:
+      - "ralph/**"
+  schedule:
+    - cron: "0 2 * * *"  # Nightly at 2 AM UTC
+
+concurrency:
+  group: ralph-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  RALPH_ENABLED: ${{ vars.RALPH_ENABLED || 'true' }}
+
+jobs:
+  setup:
+    runs-on: ubuntu-22.04
+    outputs:
+      matrix: ${{ steps.matrix.outputs.value }}
+    steps:
+      - name: Generate matrix
+        id: matrix
+        run: |
+          COUNT="${{ inputs.concurrency_count || '3' }}"
+          SEQ=$(seq 1 "$COUNT" | jq -R . | jq -s '{"loop": .}')
+          echo "value=$SEQ" >> "$GITHUB_OUTPUT"
+
+  loop:
+    needs: setup
+    runs-on: ubuntu-22.04
+    timeout-minutes: ${{ fromJSON(inputs.timeout_minutes || '180') }}
+    strategy:
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
+      fail-fast: false
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node 20 + Bun
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Cache bun dependencies
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('**/bun.lockb') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Install system deps
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq chromium-browser jq bc
+          npx playwright install-deps chromium
+
+      - name: Install Claude Code
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Install project deps
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Restore harness state
+        uses: actions/cache@v4
+        with:
+          path: |
+            .ralph/.harness_state_${{ matrix.loop }}
+            .ralph/logs
+            .ralph/report_history_${{ matrix.loop }}.jsonl
+          key: ralph-state-${{ matrix.loop }}-${{ github.run_number }}
+          restore-keys: |
+            ralph-state-${{ matrix.loop }}-
+
+      - name: Run Ralph loop
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          RALPH_ENABLED: ${{ vars.RALPH_ENABLED || 'true' }}
+          RALPH_LOOP_ID: ${{ matrix.loop }}
+        run: |
+          chmod +x harness/*.sh
+          bash harness/run.sh 2>&1 | tee ".ralph/logs/ci_loop_${{ matrix.loop }}.log"
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ralph-loop-${{ matrix.loop }}
+          path: |
+            .ralph/logs/
+            .ralph/report_${{ matrix.loop }}.json
+            .ralph/report_history_${{ matrix.loop }}.jsonl
+            .ralph/screenshots/
+          retention-days: 14
+
+  verify:
+    needs: loop
+    if: always()
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.ref }}
+
+      - name: Setup Node 20 + Bun
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Install deps
+        run: bun install --frozen-lockfile || bun install
+
+      - name: Pull latest changes
+        run: git pull origin "${{ github.ref_name }}" || true
+
+      - name: Run final verification
+        run: |
+          chmod +x harness/*.sh
+          bash harness/check.sh
+
+      - name: Upload final report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ralph-final-report
+          path: |
+            .ralph/report_*.json
+            .ralph/report_history_*.jsonl
+          retention-days: 30

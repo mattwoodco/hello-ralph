@@ -1,0 +1,54 @@
+name: Ralph Watchdog
+
+on:
+  schedule:
+    - cron: "0 6 * * *"  # Daily at 6 AM UTC
+  workflow_dispatch:
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 10
+
+      - name: Check for stale repos
+        id: stale
+        run: |
+          LAST_COMMIT=$(git log -1 --format=%ct)
+          NOW=$(date +%s)
+          HOURS_SINCE=$(( (NOW - LAST_COMMIT) / 3600 ))
+          echo "hours_since=$HOURS_SINCE" >> "$GITHUB_OUTPUT"
+          if [[ "$HOURS_SINCE" -gt 24 ]]; then
+            echo "stale=true" >> "$GITHUB_OUTPUT"
+            echo "WARN: No commits in ${HOURS_SINCE}h"
+          else
+            echo "stale=false" >> "$GITHUB_OUTPUT"
+            echo "OK: Last commit ${HOURS_SINCE}h ago"
+          fi
+
+      - name: Read webhook config
+        id: webhook
+        if: steps.stale.outputs.stale == 'true'
+        run: |
+          if [[ -f ralph.config.json ]]; then
+            URL=$(jq -r '.webhook.url // ""' ralph.config.json)
+            echo "url=$URL" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Alert via webhook
+        if: steps.stale.outputs.stale == 'true' && steps.webhook.outputs.url != ''
+        run: |
+          REPO="${{ github.repository }}"
+          HOURS="${{ steps.stale.outputs.hours_since }}"
+          curl -s -X POST "${{ steps.webhook.outputs.url }}" \
+            -H "Content-Type: application/json" \
+            -d "{
+              \"text\": \"Ralph Watchdog [$REPO] — STALLED: No commits in ${HOURS}h\",
+              \"event\": \"stalled\",
+              \"repo\": \"$REPO\",
+              \"hours_since_commit\": $HOURS
+            }" --max-time 10

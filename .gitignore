@@ -39,3 +39,9 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Ralph CI harness artifacts
+.ralph/.harness_state*
+.ralph/report*.json
+.ralph/report_history*.jsonl
+.ralph/logs/

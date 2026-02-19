@@ -1,0 +1,26 @@
+{
+  "mode": "polish",
+  "maxIterations": 5,
+  "timeoutMinutes": 30,
+  "iterationTimeoutMinutes": 10,
+  "model": "claude-sonnet-4-6",
+  "killSwitch": "RALPH_ENABLED",
+  "budgetMaxUsd": 5,
+  "concurrency": 1,
+  "logRetention": 10,
+  "checks": ["build", "typecheck", "lint"],
+  "webhook": {
+    "url": "",
+    "events": ["failure", "success", "stalled", "circuit_breaker"]
+  },
+  "circuitBreaker": {
+    "noProgressThreshold": 3,
+    "sameErrorThreshold": 5
+  },
+  "artifacts": ["logs", "diffs"],
+  "vps": {
+    "enabled": false,
+    "processManager": "pm2",
+    "chromeCleanup": true
+  }
+}

@@ -1,0 +1,2 @@
+# Ralph session config
+export CLAUDE_ALLOWED_TOOLS="Bash,Read,Write,Edit,Glob,Grep"
