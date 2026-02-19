@@ -50,7 +50,7 @@ jobs:
         id: matrix
         run: |
           COUNT="${{ inputs.concurrency_count || '3' }}"
-          SEQ=$(seq 1 "$COUNT" | jq -R . | jq -s '{"loop": .}')
+          SEQ=$(seq 1 "$COUNT" | jq -R . | jq -sc '{"loop": .}')
           echo "value=$SEQ" >> "$GITHUB_OUTPUT"
 
   loop:
