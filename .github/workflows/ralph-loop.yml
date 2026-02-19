@@ -108,6 +108,7 @@ jobs:
           RALPH_ENABLED: ${{ vars.RALPH_ENABLED || 'true' }}
           RALPH_LOOP_ID: ${{ matrix.loop }}
         run: |
+          mkdir -p .ralph/logs
           chmod +x harness/*.sh
           bash harness/run.sh 2>&1 | tee ".ralph/logs/ci_loop_${{ matrix.loop }}.log"
 
